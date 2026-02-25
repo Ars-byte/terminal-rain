@@ -1,63 +1,162 @@
-# terminal-rain
+```markdown
+# PYRAIN
 
-[![License](https://img.shields.io/badge/License-MIT-green)](https://github.com/Oakamoore/terminal-rain/blob/main/LICENSE) [![ftxui](https://img.shields.io/badge/FTXUI-5.0.0-orange)](https://github.com/ArthurSonzogni/FTXUI)
+A terminal-based rain animation ported to Python from the original C++ implementation by Oakamoore.
 
-## Overview 
+---
 
-A terminal based rain visualisation, inspired by *nkleemann's* [implementation](https://github.com/nkleemann/ascii-rain) in C. 
+## Overview
 
-<p align="center">
-	<img src="https://github.com/user-attachments/assets/ff29d010-3487-4202-8ebf-b144b468fe8b">
-</p>
+PYRAIN simulates a rainfall effect in the terminal. This project is a Python port of the C++ terminal-based rain visualisation originally developed by [Oakamoore/terminal-rain](https://github.com/Oakamoore/terminal-rain). It features depth perception through different characters and colors, and dynamically scales the number of drops based on the terminal window size.
 
-> A terminal emulator that supports a 16 colour palette and ANSI escape codes is required for this program to function as expected
+## Logic and Implementation
 
-## Installation
+The program follows a modular design divided into two main components:
 
-> A C++20 compatible compiler is required for this program to function as expected
+* **Depth Simulation**: Raindrops use different characters (`|`, `:`, `.`) and color intensities to represent distance.
+* **Dynamic Scaling**: The system calculates the number of drops based on the terminal width using a $0.75$ coefficient.
+* **Responsive Design**: The animation automatically detects terminal resize events and adjusts the drop count and screen buffer accordingly.
 
-1. Clone this project
+## File Structure
 
-```shell
-git clone https://github.com/Oakamoore/terminal-rain.git
+* **drop.py**: Defines the `Drop` class, which handles properties like position, speed, and character representation.
+* **main.py**: Contains the `Rain` engine and the main execution loop, managing terminal initialization and frame rate.
+
+## Requirements
+
+* Python 3.x
+* A terminal supporting colors and the `curses` library.
+* **Windows Users**: Install the `windows-curses` package:
+  ```bash
+  pip install windows-curses
+
 ```
 
-2. Step into the repository
+## Usage
 
-```shell
-cd terminal-rain
+1. Place `drop.py` and `main.py` in the same directory.
+2. Run the application:
+```bash
+python main.py
+
 ```
 
-3. Build the project using [CMake](https://cmake.org/)
 
-```shell
-# Configure the build
-cmake -S . -B build
 
-# Build project binaries 
-cmake --build build
+## Controls
+
+* **Q / Escape**: Exit the application.
+* **Resize**: The animation automatically adjusts to window dimensions.
+
+## Credits
+
+This program is based on the C++ project [terminal-rain](https://github.com/Oakamoore/terminal-rain) by Oakamoore, which was inspired by nkleemann's implementation in C.
+
 ```
 
-A build configuration (`Debug`, `Release` etc.) can also be [specified](https://gist.github.com/Oakamoore/685838c1b4a4c64a008f5461ac9323b5).
+---
 
-## Usage 
+### 2. drop.py
 
-Once the project is built, navigate to the newly created `terminal-rain/build/` directory, locate the executable, then run the program using:
+```python
+import random
+import curses
 
-```shell
-./terminal-rain
+class Drop:
+    CHARACTERS = ['|', ':', '.']
+    
+    def __init__(self, max_x, max_y):
+        self.max_x = max_x
+        self.max_y = max_y
+        self.reset()
+
+    def reset(self):
+        self.x = random.randint(0, max(0, self.max_x - 1))
+        self.y = 0
+        self.distance_idx = random.randint(0, len(self.CHARACTERS) - 1)
+        self.char = self.CHARACTERS[self.distance_idx]
+        self.speed = random.randint(1, 3)
+        self.color_pair = self.distance_idx + 1 
+
+    def draw(self, stdscr):
+        try:
+            if 0 <= self.y < self.max_y and 0 <= self.x < self.max_x:
+                stdscr.addch(int(self.y), self.x, self.char, curses.color_pair(self.color_pair))
+        except curses.error:
+            pass
+
+    def fall(self):
+        if self.y >= self.max_y:
+            self.reset()
+        else:
+            self.y += self.speed
+
+    def update_bounds(self, max_x, max_y):
+        self.max_x = max_x
+        self.max_y = max_y
+
 ```
 
-Press `Escape` or `Q` while the program is running to quit.
+---
 
-## Testing
+### 3. main.py
 
-[![Catch2](https://img.shields.io/badge/Catch2-3.6.0-orange)](https://github.com/catchorg/Catch2/tree/devel)
+```python
+import curses
+import time
+from drop import Drop
 
-By default, tests are disabled. To build them alongside the program append  `-D ENABLE_TESTING=1` to the build configuration command.
+class Rain:
+    def __init__(self):
+        self.drops = []
+        self.drop_coefficient = 0.75
 
-Once the project is built, navigate to `terminal-rain/build/tests/`, locate the testing executable, then run the tests using:
+    def resize(self, max_x, max_y):
+        num_drops = int(max_x * self.drop_coefficient)
+        
+        if len(self.drops) < num_drops:
+            for _ in range(num_drops - len(self.drops)):
+                self.drops.append(Drop(max_x, max_y))
+        elif len(self.drops) > num_drops:
+            self.drops = [d for d in self.drops if d.x < max_x]
+            
+        for drop in self.drops:
+            drop.update_bounds(max_x, max_y)
 
-```shell
-./terminal-rain-tests
+    def run(self, stdscr):
+        curses.curs_set(0)
+        stdscr.nodelay(True)
+        curses.start_color()
+        
+        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
+        curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK)
+        curses.init_pair(3, curses.COLOR_BLUE, curses.COLOR_BLACK)
+
+        max_y, max_x = stdscr.getmaxyx()
+        self.resize(max_x, max_y)
+
+        while True:
+            key = stdscr.getch()
+            if key in [ord('q'), ord('Q'), 27]:
+                break
+
+            current_y, current_x = stdscr.getmaxyx()
+            if (current_y, current_x) != (max_y, max_x):
+                max_y, max_x = current_y, current_x
+                stdscr.clear()
+                self.resize(max_x, max_y)
+
+            stdscr.erase()
+            
+            for drop in self.drops:
+                drop.draw(stdscr)
+                drop.fall()
+
+            stdscr.refresh()
+            time.sleep(0.03)
+
+if __name__ == "__main__":
+    rain = Rain()
+    curses.wrapper(rain.run)
+
 ```
